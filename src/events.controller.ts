@@ -1,46 +1,70 @@
-import {Body, Controller, Delete, Get, Param, Patch, Post } from "@nestjs/common";
-import { CreateEventDto } from "./create-event.dto";
-import { UpdateEventDto } from "./update-event.dto";
+import {Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, ParseIntPipe, Patch, Post} from "@nestjs/common";
+import { CreateEventDto } from "./dto/create-event.dto";
+import { UpdateEventDto } from "./dto/update-event.dto";
 import { Event } from "./event.entity";
+import { Like, MoreThan, Repository } from "typeorm";
+import { InjectRepository } from "@nestjs/typeorm";
 
 @Controller("api/v1/events")
 export class EventsController {
-  private events: Event[] = [];
+  constructor(
+    @InjectRepository(Event)
+    private readonly repository: Repository<Event>
+  ){}
 
   @Get()
-  findAll() {
-    return this.events;
+  async findAll() {
+    return await this.repository.find();
+  }
+
+  @Get("practice")
+  async practice() {
+    return await this.repository.find({
+      select: ['id', 'when'],
+      where: [{
+        id: MoreThan(3),
+        when: MoreThan(new Date('12/2/2021'))
+      }, {
+        description:Like('%meet%')
+      }], 
+      take: 2,
+      order: {
+        id: 'DESC'
+      }
+    });
   }
 
   @Get(":id")
-  findOne(@Param("id") id) {
-    return this.events.find((event) => event.id === parseInt(id));
+  async findOne(@Param("id", ParseIntPipe) id) {
+    const event = await this.repository.findOneBy({id: id});
+    if (!event) throw new NotFoundException();
+    return event;
   }
 
   @Post()
-  create(@Body() input: CreateEventDto) {
-    const newEvent: Event = {
+  async create(@Body() input: CreateEventDto) {
+    return await this.repository.save({
       ...input,
-      when: new Date(input.when),
-      id: this.events.length + 1,
-    };
-    this.events.push(newEvent);
-    return newEvent;
+      when: new Date(input.when)
+    });
   }
 
   @Patch(":id")
-  update(@Param("id") id, @Body() input: UpdateEventDto) {
-    const index = this.events.findIndex((event) => event.id === parseInt(id));
-    this.events[index] = {
-      ...this.events[index],
+  async update(@Param("id", ParseIntPipe) id, @Body() input: UpdateEventDto) {
+    const event = await this.repository.findOneBy({id: id});
+    if (!event) throw new NotFoundException();
+    return await this.repository.save({
+      ...event,
       ...input,
-      when: input.when ? new Date(input.when) : this.events[index].when,
-    };
-    return this.events[index];
+      when: input.when ? new Date(input.when) : event.when 
+    });
   }
 
-  @Delete("id")
-  remove(@Param("id") id) {
-    this.events = this.events.filter((event) => event.id !== parseInt(id));
+  @Delete(":id")
+  @HttpCode(204)
+  async remove(@Param("id", ParseIntPipe) id) {
+    const event = await this.repository.findOneBy({id: id});
+    if (!event) throw new NotFoundException();
+    await this.repository.remove(event);
   }
 }
